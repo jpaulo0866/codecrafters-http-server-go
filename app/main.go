@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"strings"
@@ -13,6 +14,8 @@ func main() {
 		fmt.Println("Failed to bind to port 4221")
 		os.Exit(1)
 	}
+
+	log.Printf("%s", os.Args)
 
 	defer listener.Close()
 
@@ -27,6 +30,10 @@ func main() {
 
 }
 
+func validArguments() bool {
+	return len(os.Args) > 3 && os.Args[1] == "--directory"
+}
+
 func handleRequest(conn net.Conn) {
 	defer conn.Close()
 
@@ -39,6 +46,28 @@ func handleRequest(conn net.Conn) {
 	pathSegments := filter(strings.Split(urlParts[1], "/"), func(val string) bool {
 		return len(strings.TrimSpace(val)) > 0
 	})
+
+	if len(pathSegments) > 0 && pathSegments[0] == "files" {
+
+		filename := pathSegments[1]
+		directory := os.Args[2]
+		fullPath := directory + filename
+
+		file, err := os.ReadFile(fullPath)
+		if err != nil {
+			conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+			return
+		}
+
+		fileContent := string(file)
+		fileLength := len(fileContent)
+		conn.Write([]byte(
+			fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n%s",
+				fileLength,
+				fileContent),
+		))
+		return
+	}
 
 	if len(pathSegments) > 0 && pathSegments[0] == "user-agent" {
 		userAgentHeader := filter(parts, func(val string) bool {
