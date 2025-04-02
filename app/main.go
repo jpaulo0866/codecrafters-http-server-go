@@ -86,13 +86,13 @@ func handleRequest(conn net.Conn) {
 
 func handleGetEcho(pathSegments []string, conn net.Conn, requestEncoding string) bool {
 	if len(pathSegments) > 0 && pathSegments[0] == "echo" {
-		useEncoding, val := encodeValue(pathSegments[1], requestEncoding)
+		useEncoding, val, schema := encodeValue(pathSegments[1], requestEncoding)
 		length := len(val)
 
 		if useEncoding {
 			conn.Write([]byte(
 				fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Encoding: %s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s",
-					requestEncoding,
+					schema,
 					length,
 					val),
 			))
@@ -139,12 +139,12 @@ func handleGetFfiles(pathSegments []string, urlParts []string, conn net.Conn, re
 			return true
 		}
 
-		useEncoding, fileContent := encodeValue(string(file), requestEncoding)
+		useEncoding, fileContent, schema := encodeValue(string(file), requestEncoding)
 		fileLength := len(fileContent)
 		if useEncoding {
 			conn.Write([]byte(
 				fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Encoding: %s\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n%s",
-					requestEncoding,
+					schema,
 					fileLength,
 					fileContent),
 			))
@@ -167,13 +167,13 @@ func handleGetUserAgent(pathSegments []string, urlParts []string, parts []string
 			return strings.HasPrefix(val, "User-Agent:")
 		})[0]
 		userAgentHeader = strings.TrimSpace(strings.ReplaceAll(userAgentHeader, "User-Agent:", ""))
-		useEncoding, userAgentHeaderEnc := encodeValue(userAgentHeader, requestEncoding)
+		useEncoding, userAgentHeaderEnc, schema := encodeValue(userAgentHeader, requestEncoding)
 		userAgentLen := len(userAgentHeaderEnc)
 
 		if useEncoding {
 			conn.Write([]byte(
 				fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Encoding: %s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s",
-					requestEncoding,
+					schema,
 					userAgentLen,
 					userAgentHeaderEnc),
 			))
