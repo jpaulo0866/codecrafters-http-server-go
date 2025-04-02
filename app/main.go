@@ -32,10 +32,6 @@ func main() {
 
 }
 
-func validArguments() bool {
-	return len(os.Args) > 3 && os.Args[1] == "--directory"
-}
-
 func handleRequest(conn net.Conn) {
 	defer conn.Close()
 
@@ -51,28 +47,66 @@ func handleRequest(conn net.Conn) {
 		return len(strings.TrimSpace(val)) > 0
 	})
 
-	if len(pathSegments) > 0 && pathSegments[0] == "files" && urlParts[0] == "GET" {
+	encodingHeaders := filter(parts, func(val string) bool {
+		return strings.HasPrefix(val, "Accept-Encoding:")
+	})
 
-		filename := pathSegments[1]
-		directory := os.Args[2]
-		fullPath := directory + filename
+	requestEncoding := ""
+	if len(encodingHeaders) > 0 {
+		requestEncoding = strings.TrimSpace(strings.ReplaceAll(encodingHeaders[0], "Accept-Encoding:", ""))
+	}
 
-		file, err := os.ReadFile(fullPath)
-		if err != nil {
-			conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
-			return
-		}
-
-		fileContent := string(file)
-		fileLength := len(fileContent)
-		conn.Write([]byte(
-			fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n%s",
-				fileLength,
-				fileContent),
-		))
+	shouldReturn := handleGetFfiles(pathSegments, urlParts, conn, requestEncoding)
+	if shouldReturn {
 		return
 	}
 
+	shouldReturn = handlePostFiles(pathSegments, urlParts, parts, conn, requestEncoding)
+	if shouldReturn {
+		return
+	}
+
+	shouldReturn = handleGetUserAgent(pathSegments, urlParts, parts, conn, requestEncoding)
+	if shouldReturn {
+		return
+	}
+
+	shouldReturn = handleGetEcho(pathSegments, conn, requestEncoding)
+	if shouldReturn {
+		return
+	}
+
+	if !strings.HasPrefix(string(req), "GET / HTTP/1.1") {
+		conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+		return
+	}
+
+	conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
+}
+
+func handleGetEcho(pathSegments []string, conn net.Conn, requestEncoding string) bool {
+	if len(pathSegments) > 0 && pathSegments[0] == "echo" {
+		useEncoding, val := encodeValue(pathSegments[1], requestEncoding)
+		length := len(val)
+
+		if useEncoding {
+			conn.Write([]byte(
+				fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Encoding: %s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s",
+					requestEncoding,
+					length,
+					val),
+			))
+		} else {
+			conn.Write([]byte(fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", length, val)))
+		}
+
+		return true
+	}
+
+	return false
+}
+
+func handlePostFiles(pathSegments []string, urlParts []string, parts []string, conn net.Conn, requestEncoding string) bool {
 	if len(pathSegments) > 0 && pathSegments[0] == "files" && urlParts[0] == "POST" {
 		requestBodyIndex := len(parts) - 1
 		requestBody := strings.TrimSuffix(parts[requestBodyIndex], "\\0")
@@ -84,38 +118,75 @@ func handleRequest(conn net.Conn) {
 		err := os.WriteFile(fullPath, bytes.Trim([]byte(requestBody), "\x00"), fs.FileMode(os.O_CREATE))
 		if err != nil {
 			conn.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\n"))
-			return
+			return true
 		}
 
 		conn.Write([]byte("HTTP/1.1 201 Created\r\n\r\n"))
-		return
+		return true
 	}
+	return false
+}
 
+func handleGetFfiles(pathSegments []string, urlParts []string, conn net.Conn, requestEncoding string) bool {
+	if len(pathSegments) > 0 && pathSegments[0] == "files" && urlParts[0] == "GET" {
+		filename := pathSegments[1]
+		directory := os.Args[2]
+		fullPath := directory + filename
+
+		file, err := os.ReadFile(fullPath)
+		if err != nil {
+			conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+			return true
+		}
+
+		useEncoding, fileContent := encodeValue(string(file), requestEncoding)
+		fileLength := len(fileContent)
+		if useEncoding {
+			conn.Write([]byte(
+				fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Encoding: %s\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n%s",
+					requestEncoding,
+					fileLength,
+					fileContent),
+			))
+		} else {
+			conn.Write([]byte(
+				fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n%s",
+					fileLength,
+					fileContent),
+			))
+		}
+
+		return true
+	}
+	return false
+}
+
+func handleGetUserAgent(pathSegments []string, urlParts []string, parts []string, conn net.Conn, requestEncoding string) bool {
 	if len(pathSegments) > 0 && pathSegments[0] == "user-agent" {
 		userAgentHeader := filter(parts, func(val string) bool {
 			return strings.HasPrefix(val, "User-Agent:")
 		})[0]
 		userAgentHeader = strings.TrimSpace(strings.ReplaceAll(userAgentHeader, "User-Agent:", ""))
-		userAgentLen := len(userAgentHeader)
-		conn.Write([]byte(
-			fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s",
-				userAgentLen,
-				userAgentHeader),
-		))
-		return
+		useEncoding, userAgentHeaderEnc := encodeValue(userAgentHeader, requestEncoding)
+		userAgentLen := len(userAgentHeaderEnc)
+
+		if useEncoding {
+			conn.Write([]byte(
+				fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Encoding: %s\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s",
+					requestEncoding,
+					userAgentLen,
+					userAgentHeaderEnc),
+			))
+		} else {
+			conn.Write([]byte(
+				fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s",
+					userAgentLen,
+					userAgentHeaderEnc),
+			))
+		}
+
+		return true
 	}
 
-	if len(pathSegments) > 0 && pathSegments[0] == "echo" {
-		val := pathSegments[1]
-		length := len(val)
-		conn.Write([]byte(fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", length, val)))
-		return
-	}
-
-	if !strings.HasPrefix(string(req), "GET / HTTP/1.1") {
-		conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
-		return
-	}
-
-	conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
+	return false
 }
