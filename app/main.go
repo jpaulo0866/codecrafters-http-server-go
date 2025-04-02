@@ -14,11 +14,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	conn, err := listener.Accept()
-	if err != nil {
-		fmt.Println("Error accepting connection: ", err.Error())
-		os.Exit(1)
+	defer listener.Close()
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			fmt.Println("Error accepting connection: ", err.Error())
+			os.Exit(1)
+		}
+		go handleRequest(conn)
 	}
+
+}
+
+func handleRequest(conn net.Conn) {
+	defer conn.Close()
 
 	req := make([]byte, 1024)
 	conn.Read(req)
@@ -41,7 +51,6 @@ func main() {
 				userAgentLen,
 				userAgentHeader),
 		))
-		conn.Close()
 		return
 	}
 
@@ -49,16 +58,13 @@ func main() {
 		val := pathSegments[1]
 		length := len(val)
 		conn.Write([]byte(fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", length, val)))
-		conn.Close()
 		return
 	}
 
 	if !strings.HasPrefix(string(req), "GET / HTTP/1.1") {
 		conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
-		conn.Close()
 		return
 	}
 
-	defer conn.Close()
 	conn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
 }
