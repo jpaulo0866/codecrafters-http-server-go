@@ -2,15 +2,10 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"strings"
 )
-
-// Ensures gofmt doesn't remove the "net" and "os" imports above (feel free to remove this!)
-var _ = net.Listen
-var _ = os.Exit
 
 func main() {
 	listener, err := net.Listen("tcp", "0.0.0.0:4221")
@@ -28,7 +23,20 @@ func main() {
 	req := make([]byte, 1024)
 	conn.Read(req)
 
-	log.Printf("Incoming Request -> %s", string(req))
+	url := string(req)
+	parts := strings.Split(url, "\r\n")
+	urlParts := strings.Split(parts[0], " ")
+	pathSegments := filter(strings.Split(urlParts[1], "/"), func(val string) bool {
+		return len(strings.TrimSpace(val)) > 0
+	})
+
+	if len(pathSegments) > 0 && pathSegments[0] == "echo" {
+		val := pathSegments[1]
+		length := len(val)
+		conn.Write([]byte(fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s", length, val)))
+		conn.Close()
+		return
+	}
 
 	if !strings.HasPrefix(string(req), "GET / HTTP/1.1") {
 		conn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
