@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"io/fs"
 	"log"
 	"net"
 	"os"
@@ -41,13 +43,15 @@ func handleRequest(conn net.Conn) {
 	conn.Read(req)
 
 	url := string(req)
-	parts := strings.Split(url, "\r\n")
+	parts := filter(strings.Split(url, "\r\n"), func(val string) bool {
+		return len(strings.TrimSpace(val)) > 0
+	})
 	urlParts := strings.Split(parts[0], " ")
 	pathSegments := filter(strings.Split(urlParts[1], "/"), func(val string) bool {
 		return len(strings.TrimSpace(val)) > 0
 	})
 
-	if len(pathSegments) > 0 && pathSegments[0] == "files" {
+	if len(pathSegments) > 0 && pathSegments[0] == "files" && urlParts[0] == "GET" {
 
 		filename := pathSegments[1]
 		directory := os.Args[2]
@@ -66,6 +70,24 @@ func handleRequest(conn net.Conn) {
 				fileLength,
 				fileContent),
 		))
+		return
+	}
+
+	if len(pathSegments) > 0 && pathSegments[0] == "files" && urlParts[0] == "POST" {
+		requestBodyIndex := len(parts) - 1
+		requestBody := strings.TrimSuffix(parts[requestBodyIndex], "\\0")
+
+		filename := pathSegments[1]
+		directory := os.Args[2]
+		fullPath := directory + filename
+
+		err := os.WriteFile(fullPath, bytes.Trim([]byte(requestBody), "\x00"), fs.FileMode(os.O_CREATE))
+		if err != nil {
+			conn.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\n"))
+			return
+		}
+
+		conn.Write([]byte("HTTP/1.1 201 Created\r\n\r\n"))
 		return
 	}
 
