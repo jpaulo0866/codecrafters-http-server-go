@@ -30,6 +30,21 @@ func main() {
 		return len(strings.TrimSpace(val)) > 0
 	})
 
+	if len(pathSegments) > 0 && pathSegments[0] == "user-agent" {
+		userAgentHeader := filter(parts, func(val string) bool {
+			return strings.HasPrefix(val, "User-Agent:")
+		})[0]
+		userAgentHeader = strings.TrimSpace(strings.ReplaceAll(userAgentHeader, "User-Agent:", ""))
+		userAgentLen := len(userAgentHeader)
+		conn.Write([]byte(
+			fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %d\r\n\r\n%s",
+				userAgentLen,
+				userAgentHeader),
+		))
+		conn.Close()
+		return
+	}
+
 	if len(pathSegments) > 0 && pathSegments[0] == "echo" {
 		val := pathSegments[1]
 		length := len(val)
